@@ -5,7 +5,7 @@
     <key>CFBundleExecutable</key>
     <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
     <key>CFBundleIdentifier</key>
-    <string>com.yourname.whisper-recorder</string>
+    <string>com.lkksoftdev.whisper-recorder</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>This app needs the microphone to transcribe your speech into text using Whisper.</string>
 </dict>

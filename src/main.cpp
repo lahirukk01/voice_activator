@@ -6,20 +6,20 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <string>
 
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
+#include "args.h"
 
 // Buffer to store 16kHz mono float32 audio
 std::vector<float> g_audio_buffer;
 std::atomic<bool> g_is_recording(false);
 
-const std::string OUTPUT_ROOT = "/Users/lahirukk/SoftwareProjects/cpp/voice_recorder";
-
-void save_to_wav(const std::string& filename, const std::vector<float>& buffer) {
+void save_to_wav(const std::string& filename, const std::vector<float>& buffer, const std::string& output_dir = "output") {
     // 1. Ensure the output directory exists
-    std::filesystem::create_directories(OUTPUT_ROOT + "/output");
-    std::string path = OUTPUT_ROOT + "/output/" + filename;
+    std::filesystem::create_directories(output_dir);
+    std::string path = output_dir + "/" + filename;
 
     // 2. Define the format: 1 channel, 16000 Hz, 32-bit Float
     drwav_data_format format;
@@ -58,7 +58,20 @@ std::string create_filename() {
     return ss.str();
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Parse command line arguments
+    Config config = parse_args(argc, argv);
+    
+    if (config.show_help) {
+        print_usage(argv[0]);
+        return 0;
+    }
+    
+    if (!config.valid) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    
     if (SDL_Init(SDL_INIT_AUDIO) < 0) return -1;
 
     SDL_AudioSpec desired, obtained;
@@ -91,8 +104,8 @@ int main() {
     SDL_CloseAudioDevice(dev);
     SDL_Quit();
 
-    std::string filename = create_filename();
-    save_to_wav(filename, g_audio_buffer);
+    std::string filename = config.custom_filename.empty() ? create_filename() : config.custom_filename;
+    save_to_wav(filename, g_audio_buffer, config.output_dir);
 
     return 0;
 }

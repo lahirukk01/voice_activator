@@ -10,7 +10,10 @@ set(CMAKE_PREFIX_PATH "/opt/homebrew")
 find_package(SDL2 REQUIRED)
 
 # Add the MACOSX_BUNDLE flag to add_executable
-add_executable(WhisperRecorder MACOSX_BUNDLE src/main.cpp)
+add_executable(WhisperRecorder MACOSX_BUNDLE 
+    src/main.cpp
+    src/args.cpp
+)
 
 # Link your plist template
 set_target_properties(WhisperRecorder PROPERTIES
