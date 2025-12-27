@@ -2,43 +2,16 @@
 #include <vector>
 #include <iostream>
 #include <atomic>
-#include <filesystem> // For creating the directory
-#include <chrono>
-#include <sstream>
-#include <iomanip>
 #include <string>
+#include <thread>
+#include <algorithm>
 
-#define DR_WAV_IMPLEMENTATION
-#include "dr_wav.h"
 #include "args.h"
 #include "transcribe.h"
 
 // Buffer to store 16kHz mono float32 audio
 std::vector<float> g_audio_buffer;
 std::atomic<bool> g_is_recording(false);
-
-void save_to_wav(const std::string& filename, const std::vector<float>& buffer, const std::string& output_dir = "output") {
-    // 1. Ensure the output directory exists
-    std::filesystem::create_directories(output_dir);
-    std::string path = output_dir + "/" + filename;
-
-    // 2. Define the format: 1 channel, 16000 Hz, 32-bit Float
-    drwav_data_format format;
-    format.container = drwav_container_riff;
-    format.format = DR_WAVE_FORMAT_IEEE_FLOAT; // Matches our Whisper buffer
-    format.channels = 1;
-    format.sampleRate = 16000;
-    format.bitsPerSample = 32;
-
-    drwav wav;
-    if (drwav_init_file_write(&wav, path.c_str(), &format, nullptr)) {
-        drwav_write_pcm_frames(&wav, buffer.size(), buffer.data());
-        drwav_uninit(&wav);
-        std::cout << "Saved to " << path << std::endl;
-    } else {
-        std::cerr << "Failed to open file for writing!" << std::endl;
-    }
-}
 
 // Callback: Runs on a background thread managed by macOS CoreAudio
 void audio_callback(void* userdata, Uint8* stream, int len) {
@@ -49,14 +22,6 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
     size_t sample_count = len / sizeof(float);
 
     g_audio_buffer.insert(g_audio_buffer.end(), samples, samples + sample_count);
-}
-
-std::string create_filename() {
-    auto now = std::chrono::system_clock::now();
-    auto time_t = std::chrono::system_clock::to_time_t(now);
-    std::stringstream ss;
-    ss << "recording_" << std::put_time(std::localtime(&time_t), "%Y-%m-%d_%H-%M-%S") << ".wav";
-    return ss.str();
 }
 
 SDL_AudioDeviceID open_audio_device() {
@@ -86,6 +51,10 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // Initialize whisper asynchronously early
+    WhisperTranscriber transcriber;
+    transcriber.init_async(config.model_path);
+    
     if (SDL_Init(SDL_INIT_AUDIO) < 0) return -1;
 
     // Open default capture device (iscapture = 1)
@@ -100,30 +69,96 @@ int main(int argc, char* argv[]) {
     g_is_recording = true;
     SDL_PauseAudioDevice(dev, 0); // Start the stream
 
+    // Chunk processing variables
+    const int sample_rate = 16000;
+    const size_t chunk_size_samples = static_cast<size_t>(config.chunk_size_seconds * sample_rate);
+    const size_t overlap_samples = static_cast<size_t>(0.2 * sample_rate);  // 0.2s overlap
+    size_t last_processed_index = 0;
+    std::atomic<bool> stop_requested(false);
+    std::atomic<bool> phrase_start_detected(false);
+    
+    // Start a thread to process chunks while recording
+    std::thread chunk_processor([&]() {
+        while (!stop_requested.load()) {
+            // Wait for enough audio to be captured
+            size_t current_size = g_audio_buffer.size();
+            size_t required_size = last_processed_index + chunk_size_samples;
+            
+            if (current_size < required_size) {
+                // Not enough audio yet, wait a bit
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            
+            // Extract chunk with overlap
+            size_t chunk_start = (last_processed_index >= overlap_samples) 
+                ? last_processed_index - overlap_samples 
+                : 0;
+            size_t chunk_end = last_processed_index + chunk_size_samples;
+            chunk_end = std::min(chunk_end, current_size);
+            
+            if (chunk_end <= chunk_start) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            
+            // Extract chunk
+            std::vector<float> chunk(
+                g_audio_buffer.begin() + chunk_start,
+                g_audio_buffer.begin() + chunk_end
+            );
+            
+            // Transcribe chunk
+            std::string transcription = transcriber.transcribe_chunk(chunk);
+            
+            if (!transcription.empty()) {
+                // Check for phrases
+                int phrase_result = transcriber.check_phrases(
+                    transcription, 
+                    config.start_phrase, 
+                    config.stop_phrase
+                );
+                
+                // Print if verbose mode OR phrase detected
+                if (phrase_result == 1 && !phrase_start_detected.load()) {
+                    phrase_start_detected.store(true);
+                    std::cout << "[START PHRASE DETECTED] " << transcription << std::endl;
+                } else if (phrase_result == -1 && phrase_start_detected.load()) {
+                    std::cout << "[STOP PHRASE DETECTED] " << transcription << std::endl;
+                    phrase_start_detected.store(false);
+                }
+
+                if (config.verbose) {
+                    std::cout << "[CHUNK] " << transcription << std::endl;
+                }
+                
+            }
+            
+            // Update last processed index (move forward by chunk size minus overlap)
+            last_processed_index += (chunk_size_samples - overlap_samples);
+        }
+    });
+
+    // Wait for user input or stop phrase
     std::cin.get(); // Wait for user
 
+    // Signal stop
+    stop_requested = true;
     SDL_PauseAudioDevice(dev, 1); // Stop
     g_is_recording = false;
+    
+    // Wait for chunk processor to finish
+    if (chunk_processor.joinable()) {
+        chunk_processor.join();
+    }
     
     std::cout << "Captured " << g_audio_buffer.size() << " samples." << std::endl;
 
     SDL_CloseAudioDevice(dev);
     SDL_Quit();
 
-    std::string filename = config.custom_filename.empty() ? create_filename() : config.custom_filename;
-    save_to_wav(filename, g_audio_buffer, config.output_dir);
-
-    // Transcribe audio using the model (defaults to base.en if not specified)
-    std::cout << "\nStarting transcription..." << std::endl;
-    std::string transcription = transcribe_audio(g_audio_buffer, config.model_path);
-    
-    if (!transcription.empty()) {
-        std::cout << "\n=== Transcription ===" << std::endl;
-        std::cout << transcription << std::endl;
-        std::cout << "=====================" << std::endl;
-    } else {
-        std::cerr << "Transcription failed or produced no output." << std::endl;
-    }
+    // Cleanup transcriber
+    transcriber.cleanup();
 
     return 0;
 }
