@@ -16,7 +16,8 @@ public:
     ~WhisperTranscriber();
     
     // Initialize whisper asynchronously in a background thread
-    void init_async(const std::string& model_path);
+    // verbose: If true, show whisper initialization logs; if false, suppress them
+    void init_async(const std::string& model_path, bool verbose = false);
     
     // Check if whisper is ready
     bool is_ready() const;
@@ -42,6 +43,6 @@ private:
     std::atomic<bool> init_failed_;
     std::thread init_thread_;
     
-    void init_whisper_internal(const std::string& model_path);
+    void init_whisper_internal(const std::string& model_path, bool verbose);
 };
 

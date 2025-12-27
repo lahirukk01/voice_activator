@@ -3,6 +3,13 @@
 #include <iostream>
 #include <thread>
 #include <regex>
+#include <cstdio>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sstream>
+#include <string>
+#include <algorithm>
+#include <cctype>
 
 WhisperTranscriber::WhisperTranscriber() 
     : ctx_(nullptr), is_ready_(false), init_failed_(false) {
@@ -12,7 +19,7 @@ WhisperTranscriber::~WhisperTranscriber() {
     cleanup();
 }
 
-void WhisperTranscriber::init_async(const std::string& model_path) {
+void WhisperTranscriber::init_async(const std::string& model_path, bool verbose) {
     if (init_thread_.joinable()) {
         // Already initializing or initialized
         return;
@@ -21,14 +28,84 @@ void WhisperTranscriber::init_async(const std::string& model_path) {
     is_ready_ = false;
     init_failed_ = false;
     
-    init_thread_ = std::thread(&WhisperTranscriber::init_whisper_internal, this, model_path);
+    init_thread_ = std::thread(&WhisperTranscriber::init_whisper_internal, this, model_path, verbose);
 }
 
-void WhisperTranscriber::init_whisper_internal(const std::string& model_path) {
-    std::cout << "Initializing whisper model (async)..." << std::endl;
+void WhisperTranscriber::init_whisper_internal(const std::string& model_path, bool verbose) {
+    if (verbose) {
+        std::cout << "Initializing whisper model (async)..." << std::endl;
+    }
+    
+    // For non-verbose mode, we'll capture stderr and filter out informational messages
+    // but keep error messages visible
+    int stderr_fd = -1;
+    int pipe_fds[2] = {-1, -1};
+    FILE* stderr_file = nullptr;
+    std::string error_output;
+    
+    if (!verbose) {
+        // Save original stderr
+        fflush(stderr);
+        stderr_fd = dup(STDERR_FILENO);
+        
+        // Create a pipe to capture stderr
+        if (pipe(pipe_fds) == 0) {
+            // Redirect stderr to the pipe
+            dup2(pipe_fds[1], STDERR_FILENO);
+            close(pipe_fds[1]);
+            pipe_fds[1] = -1;
+        }
+    }
     
     whisper_context_params cparams = whisper_context_default_params();
     whisper_context* new_ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
+    
+    // Restore stderr and process captured output
+    if (!verbose && stderr_fd >= 0) {
+        fflush(stderr);
+        
+        // Close write end of pipe
+        if (pipe_fds[1] >= 0) {
+            close(pipe_fds[1]);
+        }
+        
+        // Restore original stderr
+        dup2(stderr_fd, STDERR_FILENO);
+        close(stderr_fd);
+        
+        // Read captured output from pipe
+        if (pipe_fds[0] >= 0) {
+            char buffer[4096];
+            ssize_t bytes_read;
+            while ((bytes_read = read(pipe_fds[0], buffer, sizeof(buffer) - 1)) > 0) {
+                buffer[bytes_read] = '\0';
+                error_output += buffer;
+            }
+            close(pipe_fds[0]);
+        }
+        
+        // Filter and display only error messages (lines containing "error", "Error", "ERROR", "failed", "Failed", "FAILED")
+        if (!error_output.empty()) {
+            std::istringstream stream(error_output);
+            std::string line;
+            bool has_errors = false;
+            
+            while (std::getline(stream, line)) {
+                // Check if line contains error keywords (case-insensitive)
+                std::string lower_line = line;
+                std::transform(lower_line.begin(), lower_line.end(), lower_line.begin(), ::tolower);
+                
+                if (lower_line.find("error") != std::string::npos ||
+                    lower_line.find("failed") != std::string::npos ||
+                    lower_line.find("fatal") != std::string::npos) {
+                    std::cerr << line << std::endl;
+                    has_errors = true;
+                }
+            }
+            
+            // If no errors found, the output was just informational (suppressed)
+        }
+    }
     
     std::lock_guard<std::mutex> lock(ctx_mutex_);
     

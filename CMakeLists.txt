@@ -76,11 +76,75 @@ message(STATUS "  WHISPER_COREML: ${WHISPER_COREML}")
 
 add_subdirectory(${WHISPER_CPP_DIR} whisper_build)
 
+# Find audio processing libraries (libfvad and libspecbleach)
+# These libraries are not available via Homebrew, so they need to be built from source.
+# Run ./install_audio_libs.sh to build and install them.
+
+find_package(PkgConfig)
+
+# Add common install paths to pkg-config search
+if(APPLE)
+    set(ENV{PKG_CONFIG_PATH} "/usr/local/lib/pkgconfig:/opt/homebrew/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+endif()
+
+# Try to find libfvad
+set(HAVE_FVAD OFF)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBFVAD libfvad)
+    if(LIBFVAD_FOUND)
+        # Verify header file actually exists
+        find_path(FVAD_HEADER fvad.h
+            PATHS ${LIBFVAD_INCLUDE_DIRS} /usr/local/include /opt/homebrew/include
+        )
+        if(FVAD_HEADER)
+            set(HAVE_FVAD ON)
+            message(STATUS "Found libfvad: ${LIBFVAD_LIBRARIES}")
+            message(STATUS "  Header at: ${FVAD_HEADER}")
+        else()
+            message(STATUS "libfvad pkg-config found but header not available, using fallback VAD")
+            set(LIBFVAD_FOUND OFF)
+        endif()
+    else()
+        message(STATUS "libfvad not found via pkg-config, using fallback VAD")
+        message(STATUS "  To install: run ./install_audio_libs.sh")
+    endif()
+else()
+    message(STATUS "pkg-config not found, using fallback VAD")
+    message(STATUS "  Install pkg-config: brew install pkg-config")
+    message(STATUS "  Then install libraries: run ./install_audio_libs.sh")
+endif()
+
+# Try to find libspecbleach
+set(HAVE_SPECBLEACH OFF)
+if(PkgConfig_FOUND)
+    pkg_check_modules(LIBSPECBLEACH libspecbleach)
+    if(LIBSPECBLEACH_FOUND)
+        # Verify header file actually exists
+        find_path(SPECBLEACH_HEADER specbleach_denoiser.h
+            PATHS ${LIBSPECBLEACH_INCLUDE_DIRS} /usr/local/include /opt/homebrew/include
+        )
+        if(SPECBLEACH_HEADER)
+            set(HAVE_SPECBLEACH ON)
+            message(STATUS "Found libspecbleach: ${LIBSPECBLEACH_LIBRARIES}")
+            message(STATUS "  Header at: ${SPECBLEACH_HEADER}")
+        else()
+            message(STATUS "libspecbleach pkg-config found but header not available, using fallback noise reduction")
+            set(LIBSPECBLEACH_FOUND OFF)
+        endif()
+    else()
+        message(STATUS "libspecbleach not found via pkg-config, using fallback noise reduction")
+        message(STATUS "  To install: run ./install_audio_libs.sh")
+    endif()
+else()
+    message(STATUS "pkg-config not found, using fallback noise reduction")
+endif()
+
 # Add the MACOSX_BUNDLE flag to add_executable
 add_executable(WhisperRecorder MACOSX_BUNDLE 
     src/main.cpp
     src/args.cpp
     src/transcribe.cpp
+    src/audio_filter.cpp
 )
 
 # Link your plist template
@@ -93,10 +157,32 @@ target_include_directories(WhisperRecorder PRIVATE
     ${SDL2_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ${LIBFVAD_INCLUDE_DIRS}
+    ${LIBSPECBLEACH_INCLUDE_DIRS}
 )
+
+# Define preprocessor flags for library availability
+if(HAVE_FVAD)
+    target_compile_definitions(WhisperRecorder PRIVATE HAVE_FVAD)
+endif()
+
+if(HAVE_SPECBLEACH)
+    target_compile_definitions(WhisperRecorder PRIVATE HAVE_SPECBLEACH)
+endif()
 
 # Link libraries
 target_link_libraries(WhisperRecorder PRIVATE 
     ${SDL2_LIBRARIES}
     whisper
+    ${LIBFVAD_LIBRARIES}
+    ${LIBSPECBLEACH_LIBRARIES}
 )
+
+# Add library directories if found
+if(LIBFVAD_FOUND)
+    target_link_directories(WhisperRecorder PRIVATE ${LIBFVAD_LIBRARY_DIRS})
+endif()
+
+if(LIBSPECBLEACH_FOUND)
+    target_link_directories(WhisperRecorder PRIVATE ${LIBSPECBLEACH_LIBRARY_DIRS})
+endif()
