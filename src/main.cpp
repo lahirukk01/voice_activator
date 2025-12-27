@@ -11,6 +11,7 @@
 #define DR_WAV_IMPLEMENTATION
 #include "dr_wav.h"
 #include "args.h"
+#include "transcribe.h"
 
 // Buffer to store 16kHz mono float32 audio
 std::vector<float> g_audio_buffer;
@@ -58,6 +59,19 @@ std::string create_filename() {
     return ss.str();
 }
 
+SDL_AudioDeviceID open_audio_device() {
+    SDL_AudioSpec desired, obtained;
+    SDL_zero(desired);
+    desired.freq = 16000;       // Target: 16kHz
+    desired.format = AUDIO_F32; // Whisper wants 32-bit floats
+    desired.channels = 1;       // Mono
+    desired.samples = 4096;
+    desired.callback = audio_callback;
+
+    // Open default capture device (iscapture = 1)
+    return SDL_OpenAudioDevice(nullptr, 1, &desired, &obtained, 0);
+}
+
 int main(int argc, char* argv[]) {
     // Parse command line arguments
     Config config = parse_args(argc, argv);
@@ -74,16 +88,8 @@ int main(int argc, char* argv[]) {
     
     if (SDL_Init(SDL_INIT_AUDIO) < 0) return -1;
 
-    SDL_AudioSpec desired, obtained;
-    SDL_zero(desired);
-    desired.freq = 16000;       // Target: 16kHz
-    desired.format = AUDIO_F32; // Whisper wants 32-bit floats
-    desired.channels = 1;       // Mono
-    desired.samples = 4096;
-    desired.callback = audio_callback;
-
     // Open default capture device (iscapture = 1)
-    SDL_AudioDeviceID dev = SDL_OpenAudioDevice(nullptr, 1, &desired, &obtained, 0);
+    SDL_AudioDeviceID dev = open_audio_device();
     
     if (dev == 0) {
         std::cerr << "Failed to open mic: " << SDL_GetError() << std::endl;
@@ -106,6 +112,18 @@ int main(int argc, char* argv[]) {
 
     std::string filename = config.custom_filename.empty() ? create_filename() : config.custom_filename;
     save_to_wav(filename, g_audio_buffer, config.output_dir);
+
+    // Transcribe audio using the model (defaults to base.en if not specified)
+    std::cout << "\nStarting transcription..." << std::endl;
+    std::string transcription = transcribe_audio(g_audio_buffer, config.model_path);
+    
+    if (!transcription.empty()) {
+        std::cout << "\n=== Transcription ===" << std::endl;
+        std::cout << transcription << std::endl;
+        std::cout << "=====================" << std::endl;
+    } else {
+        std::cerr << "Transcription failed or produced no output." << std::endl;
+    }
 
     return 0;
 }

@@ -7,6 +7,7 @@ void print_usage(const char* program_name) {
               << "Options:\n"
               << "  -o, --output DIR    Output directory (default: output)\n"
               << "  -f, --filename NAME Custom filename (default: auto-generated with timestamp)\n"
+              << "  -m, --model PATH    Path to whisper model file (default: ../Python/whisper.cpp/models/ggml-base.en.bin)\n"
               << "  -h, --help          Show this help message\n";
 }
 
@@ -32,6 +33,14 @@ Config parse_args(int argc, char* argv[]) {
                 config.custom_filename = argv[++i];
             } else {
                 std::cerr << "Error: --filename requires a filename\n";
+                config.valid = false;
+                return config;
+            }
+        } else if (arg == "-m" || arg == "--model") {
+            if (i + 1 < argc) {
+                config.model_path = argv[++i];
+            } else {
+                std::cerr << "Error: --model requires a model file path\n";
                 config.valid = false;
                 return config;
             }
