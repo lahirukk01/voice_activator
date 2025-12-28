@@ -5,3 +5,5 @@ cmake-build-release/
 cmake-build-debug-universal/
 cmake-build-release-universal/
 cmake-build-debug-universal/
+
+.DS_Store

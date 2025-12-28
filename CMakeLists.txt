@@ -145,6 +145,8 @@ add_executable(WhisperRecorder MACOSX_BUNDLE
     src/args.cpp
     src/transcribe.cpp
     src/audio_filter.cpp
+    src/audio_capture.cpp
+    src/wake_word_detector.cpp
 )
 
 # Link your plist template
