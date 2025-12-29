@@ -1,7 +1,8 @@
-#include "wake_word_detector.h"
-#include "audio_capture.h"
-#include "transcribe.h"
-#include "audio_filter.h"
+#include "wake_word_detector.hpp"
+#include "audio_capture.hpp"
+#include "transcribe.hpp"
+#include "audio_filter.hpp"
+#include "wake_word_event.hpp"
 #include <iostream>
 #include <thread>
 #include <atomic>
@@ -17,6 +18,7 @@ WakeWordDetector::WakeWordDetector()
     , phrase_start_detected_(false)
     , initialized_(false)
     , running_(false)
+    , event_channel_(nullptr)
 {
 }
 
@@ -24,13 +26,14 @@ WakeWordDetector::~WakeWordDetector() {
     cleanup();
 }
 
-bool WakeWordDetector::initialize(const Config& config) {
+bool WakeWordDetector::initialize(const Config& config, Channel<WakeWordEvent>& event_channel) {
     if (initialized_) {
         std::cerr << "WakeWordDetector already initialized" << std::endl;
         return false;
     }
     
     config_ = config;
+    event_channel_ = &event_channel;
     
     // Create transcriber and audio filter
     transcriber_ = std::make_unique<WhisperTranscriber>();
@@ -120,7 +123,7 @@ std::vector<float> WakeWordDetector::resample_chunk(const std::vector<float>& ch
 }
 
 void WakeWordDetector::handle_transcription(const std::string& transcription) {
-    if (transcription.empty()) {
+    if (transcription.empty() || event_channel_ == nullptr) {
         return;
     }
     
@@ -131,13 +134,19 @@ void WakeWordDetector::handle_transcription(const std::string& transcription) {
         config_.stop_phrase
     );
     
-    // Handle phrase detection
+    // Handle phrase detection and send events
     if (phrase_result == 1 && !phrase_start_detected_.load()) {
         phrase_start_detected_.store(true);
         std::cout << "[START PHRASE DETECTED] " << transcription << std::endl;
+        
+        // Send START event to main thread
+        event_channel_->send(WakeWordEvent(WakeWordEventType::START, transcription));
     } else if (phrase_result == -1 && phrase_start_detected_.load()) {
         std::cout << "[STOP PHRASE DETECTED] " << transcription << std::endl;
         phrase_start_detected_.store(false);
+        
+        // Send STOP event to main thread
+        event_channel_->send(WakeWordEvent(WakeWordEventType::STOP, transcription));
     }
 
     // Always print transcriptions
@@ -279,16 +288,64 @@ void WakeWordDetector::cleanup() {
     
     set_audio_filter(nullptr);
     initialized_ = false;
+    event_channel_ = nullptr;
 }
 
 // Convenience function for backward compatibility
+// Handles full lifecycle: initialization, event processing, and cleanup
 int start_wake_word_detection(const Config& config) {
+    // Create event channel
+    Channel<WakeWordEvent> event_channel;
+    
+    // Create wake word detector
     WakeWordDetector detector;
     
-    if (!detector.initialize(config)) {
+    if (!detector.initialize(config, event_channel)) {
         return 1;
     }
     
-    return detector.start();
+    // Start detector in a separate thread (non-blocking)
+    std::thread detector_thread([&detector, &event_channel]() {
+        detector.start();  // This will block until user presses Enter
+        // When start() returns, close the channel to unblock the event loop
+        event_channel.close();
+    });
+    
+    // Main thread: Run event loop to receive START/STOP events
+    std::cout << "Waiting for wake word events... (Press Enter to stop)" << std::endl;
+    
+    // Blocking receive loop - waits for events until channel is closed
+    while (!event_channel.is_closed()) {
+        // Blocking receive - waits until an event is available or channel is closed
+        WakeWordEvent event = event_channel.receive();
+        
+        // If channel is closed and empty, receive returns default event
+        if (event_channel.is_closed()) {
+            break;
+        }
+        
+        // Handle event
+        if (event.type == WakeWordEventType::START) {
+            std::cout << "\n[MAIN THREAD] START event received! Transcription: " 
+                      << event.transcription << std::endl;
+            // Handle START event here
+            // e.g., start recording, activate assistant, etc.
+        } else if (event.type == WakeWordEventType::STOP) {
+            std::cout << "\n[MAIN THREAD] STOP event received! Transcription: " 
+                      << event.transcription << std::endl;
+            // Handle STOP event here
+            // e.g., stop recording, deactivate assistant, etc.
+        }
+    }
+    
+    // Detector thread has stopped (user pressed Enter), wait for it to finish
+    if (detector_thread.joinable()) {
+        detector_thread.join();
+    }
+    
+    // Cleanup
+    detector.cleanup();
+    
+    return 0;
 }
 

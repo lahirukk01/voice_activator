@@ -1,6 +1,6 @@
 #include <iostream>
-#include "args.h"
-#include "wake_word_detector.h"
+#include "args.hpp"
+#include "wake_word_detector.hpp"
 
 int main(int argc, char* argv[]) {
     // Parse command line arguments
@@ -16,6 +16,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Start wake word detection
+    // Start wake word detection (handles initialization, event processing, and cleanup)
     return start_wake_word_detection(config);
 }

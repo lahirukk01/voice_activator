@@ -1,4 +1,4 @@
-#include "transcribe.h"
+#include "transcribe.hpp"
 #include "whisper.h"
 #include <iostream>
 #include <thread>

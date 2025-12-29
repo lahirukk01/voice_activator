@@ -1,5 +1,5 @@
-#include "audio_capture.h"
-#include "audio_filter.h"
+#include "audio_capture.hpp"
+#include "audio_filter.hpp"
 #include <SDL.h>
 #include <vector>
 #include <atomic>

@@ -1,6 +1,8 @@
 #pragma once
 
-#include "args.h"
+#include "args.hpp"
+#include "channel.hpp"
+#include "wake_word_event.hpp"
 #include <SDL.h>
 #include <string>
 #include <atomic>
@@ -19,8 +21,9 @@ public:
     ~WakeWordDetector();
     
     // Initialize components (whisper, audio filter, audio capture)
+    // event_channel: Channel for sending START/STOP events
     // Returns true on success, false on error
-    bool initialize(const Config& config);
+    bool initialize(const Config& config, Channel<WakeWordEvent>& event_channel);
     
     // Start wake word detection
     // Returns 0 on success, non-zero on error
@@ -57,6 +60,7 @@ private:
     std::thread chunk_processor_thread_;
     bool initialized_;
     bool running_;
+    Channel<WakeWordEvent>* event_channel_;  // Reference to channel for sending events
 };
 
 // Convenience function for backward compatibility
