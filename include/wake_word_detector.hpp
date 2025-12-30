@@ -8,6 +8,7 @@
 #include <atomic>
 #include <thread>
 #include <memory>
+#include <optional>
 
 // Forward declarations
 class WhisperTranscriber;
@@ -21,16 +22,21 @@ public:
     ~WakeWordDetector();
     
     // Initialize components (whisper, audio filter, audio capture)
-    // event_channel: Channel for sending START/STOP events
+    // event_channel: Channel for sending START/STOP events (required)
     // Returns true on success, false on error
     bool initialize(const Config& config, Channel<WakeWordEvent>& event_channel);
     
-    // Start wake word detection
+    // Start wake word detection (creates detector thread, returns immediately)
+    // Caller should run event loop to receive events
     // Returns 0 on success, non-zero on error
     int start();
     
-    // Stop wake word detection
+    // Stop wake word detection (sets flag, closes channel, joins thread)
     void stop();
+    
+    // Run event loop (blocks until stop() is called)
+    // Call this after start() to receive and handle events
+    void run_event_loop();
     
     // Cleanup all resources
     void cleanup();
@@ -57,10 +63,10 @@ private:
     SDL_AudioDeviceID dev_;
     std::atomic<bool> stop_requested_;
     std::atomic<bool> phrase_start_detected_;
-    std::thread chunk_processor_thread_;
+    std::optional<std::thread> detector_thread_;  // Thread created in start(), joined in stop()
     bool initialized_;
     bool running_;
-    Channel<WakeWordEvent>* event_channel_;  // Reference to channel for sending events
+    Channel<WakeWordEvent>* event_channel_;  // Reference to channel for sending events (required)
 };
 
 // Convenience function for backward compatibility

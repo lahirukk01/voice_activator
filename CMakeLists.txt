@@ -5,6 +5,15 @@ project(M1Recorder)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Add PyBind11
+include(FetchContent)
+FetchContent_Declare(
+    pybind11
+    GIT_REPOSITORY https://github.com/pybind/pybind11.git
+    GIT_TAG v2.11.1
+)
+FetchContent_MakeAvailable(pybind11)
+
 # Set default build type to Release if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
@@ -187,4 +196,49 @@ endif()
 
 if(LIBSPECBLEACH_FOUND)
     target_link_directories(WhisperRecorder PRIVATE ${LIBSPECBLEACH_LIBRARY_DIRS})
+endif()
+
+# Python module
+pybind11_add_module(voice_recorder
+    src/python_bindings.cpp
+    src/args.cpp
+    src/transcribe.cpp
+    src/audio_filter.cpp
+    src/audio_capture.cpp
+    src/wake_word_detector.cpp
+)
+
+# Include directories for Python module
+target_include_directories(voice_recorder PRIVATE 
+    ${SDL2_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+    ${LIBFVAD_INCLUDE_DIRS}
+    ${LIBSPECBLEACH_INCLUDE_DIRS}
+)
+
+# Define preprocessor flags for library availability
+if(HAVE_FVAD)
+    target_compile_definitions(voice_recorder PRIVATE HAVE_FVAD)
+endif()
+
+if(HAVE_SPECBLEACH)
+    target_compile_definitions(voice_recorder PRIVATE HAVE_SPECBLEACH)
+endif()
+
+# Link libraries for Python module
+target_link_libraries(voice_recorder PRIVATE 
+    ${SDL2_LIBRARIES}
+    whisper
+    ${LIBFVAD_LIBRARIES}
+    ${LIBSPECBLEACH_LIBRARIES}
+)
+
+# Add library directories if found
+if(LIBFVAD_FOUND)
+    target_link_directories(voice_recorder PRIVATE ${LIBFVAD_LIBRARY_DIRS})
+endif()
+
+if(LIBSPECBLEACH_FOUND)
+    target_link_directories(voice_recorder PRIVATE ${LIBSPECBLEACH_LIBRARY_DIRS})
 endif()

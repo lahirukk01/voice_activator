@@ -223,6 +223,11 @@ int WakeWordDetector::start() {
         return 1;
     }
     
+    if (event_channel_ == nullptr) {
+        std::cerr << "Event channel not set. Call initialize() with a valid channel." << std::endl;
+        return 1;
+    }
+    
     // Setup audio device
     if (!setup_audio_device()) {
         return 1;
@@ -231,20 +236,50 @@ int WakeWordDetector::start() {
     // Reset flags
     stop_requested_ = false;
     phrase_start_detected_ = false;
-    
-    // Start chunk processing thread
     running_ = true;
-    chunk_processor_thread_ = std::thread(&WakeWordDetector::process_audio_chunks, this);
-
-    // Wait for user input
-    std::cin.get();
     
-    // Stop processing
-    stop();
+    // Create detector thread (runs process_audio_chunks)
+    detector_thread_ = std::thread(&WakeWordDetector::process_audio_chunks, this);
     
-    std::cout << "Captured " << g_audio_buffer.size() << " samples." << std::endl;
-    
+    // Return immediately - caller will run event loop
     return 0;
+}
+
+void WakeWordDetector::run_event_loop() {
+    if (!running_) {
+        std::cerr << "Detector not running. Call start() first." << std::endl;
+        return;
+    }
+    
+    std::cout << "Waiting for wake word events... (Call stop() to exit)" << std::endl;
+    
+    while (!event_channel_->is_closed() && running_) {
+        // Blocking receive - waits until an event is available or channel is closed
+        WakeWordEvent event = event_channel_->receive();
+        
+        // If channel is closed and empty, receive returns default event
+        if (event_channel_->is_closed()) {
+            break;
+        }
+        
+        // Handle event (for C++ use case, can add callbacks here if needed)
+        if (event.type == WakeWordEventType::START) {
+            std::cout << "\n[START] Event received! Transcription: " 
+                      << event.transcription << std::endl;
+        } else if (event.type == WakeWordEventType::STOP) {
+            std::cout << "\n[STOP] Event received! Transcription: " 
+                      << event.transcription << std::endl;
+        }
+    }
+    
+    // Event loop exited, join detector thread
+    if (detector_thread_.has_value() && detector_thread_->joinable()) {
+        detector_thread_->join();
+        detector_thread_.reset();
+    }
+    
+    running_ = false;
+    std::cout << "Captured " << g_audio_buffer.size() << " samples." << std::endl;
 }
 
 void WakeWordDetector::stop() {
@@ -252,13 +287,19 @@ void WakeWordDetector::stop() {
         return;
     }
     
-    // Signal stop
+    // Signal stop (causes process_audio_chunks loop to exit)
     stop_requested_ = true;
     stop_audio_capture(dev_);
     
-    // Wait for chunk processor to finish
-    if (chunk_processor_thread_.joinable()) {
-        chunk_processor_thread_.join();
+    // Close event channel (unblocks event loop)
+    if (event_channel_ != nullptr) {
+        event_channel_->close();
+    }
+    
+    // Wait for detector thread to finish
+    if (detector_thread_.has_value() && detector_thread_->joinable()) {
+        detector_thread_->join();
+        detector_thread_.reset();
     }
     
     running_ = false;
@@ -304,43 +345,23 @@ int start_wake_word_detection(const Config& config) {
         return 1;
     }
     
-    // Start detector in a separate thread (non-blocking)
-    std::thread detector_thread([&detector, &event_channel]() {
-        detector.start();  // This will block until user presses Enter
-        // When start() returns, close the channel to unblock the event loop
-        event_channel.close();
-    });
-    
-    // Main thread: Run event loop to receive START/STOP events
-    std::cout << "Waiting for wake word events... (Press Enter to stop)" << std::endl;
-    
-    // Blocking receive loop - waits for events until channel is closed
-    while (!event_channel.is_closed()) {
-        // Blocking receive - waits until an event is available or channel is closed
-        WakeWordEvent event = event_channel.receive();
-        
-        // If channel is closed and empty, receive returns default event
-        if (event_channel.is_closed()) {
-            break;
-        }
-        
-        // Handle event
-        if (event.type == WakeWordEventType::START) {
-            std::cout << "\n[MAIN THREAD] START event received! Transcription: " 
-                      << event.transcription << std::endl;
-            // Handle START event here
-            // e.g., start recording, activate assistant, etc.
-        } else if (event.type == WakeWordEventType::STOP) {
-            std::cout << "\n[MAIN THREAD] STOP event received! Transcription: " 
-                      << event.transcription << std::endl;
-            // Handle STOP event here
-            // e.g., stop recording, deactivate assistant, etc.
-        }
+    // Start detector (creates detector thread, returns immediately)
+    if (detector.start() != 0) {
+        return 1;
     }
     
-    // Detector thread has stopped (user pressed Enter), wait for it to finish
-    if (detector_thread.joinable()) {
-        detector_thread.join();
+    // Wait for user input in separate thread
+    std::thread input_thread([&detector]() {
+        std::cin.get();
+        detector.stop();
+    });
+    
+    // Run event loop in main thread (blocks until stop() is called)
+    detector.run_event_loop();
+    
+    // Wait for input thread to finish
+    if (input_thread.joinable()) {
+        input_thread.join();
     }
     
     // Cleanup
