@@ -10,8 +10,8 @@ struct Config {
     std::string start_phrase = "hey[!?.,]?\\s+alfred";  // Start phrase regex pattern (matches "hey alfred", "hey! alfred", "hey, alfred", etc.)
     std::string stop_phrase = "stop[!?.,]?\\s+alfred";  // Stop phrase regex pattern (matches "stop alfred", "stop! alfred", "stop, alfred", etc.)
     bool verbose = false;  // Enable real-time chunk printing
-    bool enable_vad = false;  // Enable VAD filtering (disabled by default to ensure audio capture)
-    bool enable_noise_reduction = false;  // Enable noise reduction (disabled by default)
+    bool enable_vad = true;  // Enable VAD filtering (enabled by default)
+    bool enable_noise_reduction = true;  // Enable noise reduction (enabled by default)
     int vad_mode = 2;  // VAD aggressiveness (0-3, WebRTC standard: 0=quality, 1=low bitrate, 2=aggressive, 3=very aggressive)
     float noise_reduction_amount = 0.5f;  // Noise reduction strength (0.0-1.0)
     bool show_help = false;
