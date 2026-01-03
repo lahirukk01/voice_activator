@@ -3,38 +3,58 @@
 #include <SDL.h>
 #include <vector>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <memory>
+#include <stdexcept>
 
-// Audio format information
-struct AudioFormat {
-    int sample_rate = 16000;
-    int channels = 1;
-    bool is_stereo = false;
-};
-
-// Global audio buffer and state
-extern std::vector<float> g_audio_buffer;
-extern std::atomic<bool> g_is_recording;
-extern AudioFormat g_audio_format;
-
+#include "audio_utils.hpp"
+#include "iaudio_capture.hpp"
+ 
 // Forward declaration
 class AudioFilter;
 
-// Initialize audio capture system
-bool init_audio_capture();
+class AudioCapture : public IAudioCapture {
+public:
+    // Constructor initializes SDL and opens the device
+    // Throws std::runtime_error on failure
+    explicit AudioCapture(int target_sample_rate = 16000);
+    
+    ~AudioCapture() override;
 
-// Open audio device and return device ID
-// Returns 0 on failure
-SDL_AudioDeviceID open_audio_device(SDL_AudioSpec* obtained_spec);
+    // Start audio capture
+    void start() override;
 
-// Start audio capture
-void start_audio_capture(SDL_AudioDeviceID dev);
+    // Stop audio capture
+    void stop() override;
 
-// Stop audio capture
-void stop_audio_capture(SDL_AudioDeviceID dev);
+    // Cleanup audio system
+    // Called automatically by destructor, but can be called manually
+    void cleanup();
 
-// Cleanup audio system
-void cleanup_audio();
+    // Get the audio queue to consume data
+    AudioQueue<float>& get_audio_queue() override { return audio_queue_; }
 
-// Set audio filter for callback (can be nullptr)
-void set_audio_filter(class AudioFilter* filter);
+    // Set audio filter for callback (can be nullptr)
+    void set_audio_filter(AudioFilter* filter) override;
+
+    // Set verbose mode flag
+    void set_verbose(bool verbose) override;
+    
+    // Get current audio format
+    const AudioFormat& get_format() const override { return format_; }
+    
+    // Helper used by static callback
+    void process_audio(const float* samples, int frame_count);
+
+private:
+    SDL_AudioDeviceID dev_;
+    AudioFormat format_;
+    AudioQueue<float> audio_queue_;
+    AudioFilter* filter_;
+    std::atomic<bool> is_recording_;
+    std::atomic<bool> verbose_;
+    bool sdl_initialized_; // Track if we initialized SDL
+};
 

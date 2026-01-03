@@ -5,8 +5,8 @@
 #include <cstdint>
 
 // Forward declarations for library types
-// We use void* to avoid needing the actual types in the header
-// The implementation will cast to the proper types when libraries are available
+struct Fvad;
+struct specbleach_denoiser;
 
 // Audio filter combining VAD and noise reduction
 class AudioFilter {
@@ -41,11 +41,10 @@ public:
     bool is_noise_reduction_enabled() const { return noise_reduction_enabled_; }
 
 private:
-    void* vad_context_;  // libfvad context (Fvad* when HAVE_FVAD is defined)
-    void* noise_reduction_context_;  // libspecbleach context (struct specbleach_denoiser* when HAVE_SPECBLEACH is defined)
+    Fvad* vad_context_;
+    specbleach_denoiser* noise_reduction_context_;
     bool vad_enabled_;
     bool noise_reduction_enabled_;
-    bool use_libraries_;  // Flag to track if libraries are available
     int sample_rate_;
     
     // Temporary buffer for int16_t conversion (libfvad uses int16_t)
