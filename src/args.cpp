@@ -8,7 +8,7 @@ void print_usage(const char* program_name) {
               << "Options:\n"
               << "  -o, --output DIR       Output directory (default: output)\n"
               << "  -f, --filename NAME    Custom filename (default: auto-generated with timestamp)\n"
-              << "  -m, --model PATH       Path to whisper model file (default: /Users/lahirukk/SoftwareProjects/Python/whisper.cpp/models/ggml-base.en.bin)\n"
+              << "  -m, --model PATH       Path to whisper model file\n"
               << "  --chunk-size SECONDS   Chunk size for transcription in seconds (default: 3.0)\n"
               << "  --start-phrase REGEX     Start phrase regex pattern (default: \"hey[!?.]?\\s+alfred\")\n"
               << "  --stop-phrase REGEX     Stop phrase regex pattern (default: \"stop[!?.]?\\s+alfred\")\n"
