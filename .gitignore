@@ -1,9 +1,41 @@
-output/
+# Build directories
 build/
-cmake-build-debug/
-cmake-build-release/
-cmake-build-debug-universal/
-cmake-build-release-universal/
-cmake-build-debug-universal/
+cmake-build-*/
+out/
+bin/
 
+# CMake artifacts (if run in root)
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+compile_commands.json
+install_manifest.txt
+*.cmake
+!CMakeLists.txt
+
+# Dependencies
+_deps/
+third_party/
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# MacOS
 .DS_Store
+*.app/
+
+# Output files
+output/
+*.wav
+*.mp3
+
+# Compiled Objects
+*.o
+*.obj
+*.dylib
+*.so
+*.a
