@@ -11,6 +11,9 @@
 #include <memory>
 #include <optional>
 
+// Forward declaration
+class SocketWriter;
+
 // Wake word detector class
 // Manages the lifecycle of wake word detection: processing and event dispatching
 // Dependencies (AudioCapture, Transcriber) are injected and must outlive this object.
@@ -24,12 +27,13 @@ public:
         const std::string& start_phrase,
         const std::string& stop_phrase,
         bool verbose,
-        Channel<WakeWordEvent>& event_channel
+        Channel<WakeWordEvent>& event_channel,
+        SocketWriter* socket_writer = nullptr  // Optional: for sending audio chunks
     );
     
     ~WakeWordDetector();
     
-    // Start wake word detection
+    // Start wake word detection (non-blocking) - returns immediately
     // Returns 0 on success, non-zero on error
     int start();
     
@@ -66,6 +70,7 @@ private:
     std::thread chunk_processor_thread_;
     bool running_;
     Channel<WakeWordEvent>& event_channel_; // Reference to channel for sending events
+    SocketWriter* socket_writer_; // Optional: for sending audio chunks to Python
 };
 
 

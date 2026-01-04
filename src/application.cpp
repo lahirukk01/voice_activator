@@ -1,6 +1,7 @@
 #include "application.hpp"
 #include "wake_word_detector.hpp"
 #include "fifo_writer.hpp"
+#include "socket_writer.hpp"
 #include "wake_word_event.hpp"
 #include "channel.hpp"
 #include "audio_capture.hpp"
@@ -10,8 +11,32 @@
 #include <memory>
 #include <thread>
 
+#include <csignal>
+#include <atomic>
+
+// Global pointer for signal handler
+namespace {
+    std::atomic<bool> g_shutdown_requested(false);
+    Channel<WakeWordEvent>* g_event_channel_ptr = nullptr;
+
+    void signal_handler(int signal) {
+        if (signal == SIGINT || signal == SIGTERM) {
+            std::cout << "\nSignal " << signal << " received. Shutting down..." << std::endl;
+            g_shutdown_requested = true;
+            if (g_event_channel_ptr) {
+                g_event_channel_ptr->close(); // Unblock the main loop
+            }
+        }
+    }
+}
+
 void Application::run(const Config& config) {
     Channel<WakeWordEvent> event_channel;
+    
+    // Set up signal handlers
+    g_event_channel_ptr = &event_channel;
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
     
     // --- Composition Root ---
     
@@ -19,7 +44,8 @@ void Application::run(const Config& config) {
     auto transcriber = std::make_unique<WhisperTranscriber>();
     auto audio_filter = std::make_unique<AudioFilter>();
     auto audio_capture = std::make_unique<AudioCapture>(16000);
-    auto fifo_writer = std::make_unique<FifoWriter>(config.fifo_path);
+    // fifo_writer instantiation removed per request
+    auto socket_writer = std::make_unique<SocketWriter>(config.socket_path);
 
     // 2. Configure Transcriber
     transcriber->init_async(config.model_path, config.verbose);
@@ -45,17 +71,16 @@ void Application::run(const Config& config) {
         config.start_phrase,
         config.stop_phrase,
         config.verbose,
-        event_channel
+        event_channel,
+        socket_writer.get()
     );
     
     // --- End Composition Root ---
   
-    std::thread detector_thread([&detector, &event_channel]() {
-        detector->start(); 
-        event_channel.close();
-    });
+    // Start detector directly (non-blocking now)
+    detector->start();
     
-    std::cout << "Waiting for wake word events... (Press Enter to stop)" << std::endl;
+    std::cout << "Waiting for wake word events... (Press Ctrl+C to stop)" << std::endl;
     
     while (!event_channel.is_closed()) {
         WakeWordEvent event = event_channel.receive();
@@ -67,15 +92,15 @@ void Application::run(const Config& config) {
         if (event.type == WakeWordEventType::START) {
             std::cout << "\n[MAIN THREAD] START event received! Transcription: " 
                       << event.transcription << std::endl;
-            fifo_writer->send_event(WakeWordEventType::START);
+            socket_writer->send_event(WakeWordEventType::START);
         } else if (event.type == WakeWordEventType::STOP) {
             std::cout << "\n[MAIN THREAD] STOP event received! Transcription: " 
                       << event.transcription << std::endl;
-            fifo_writer->send_event(WakeWordEventType::STOP);
+            socket_writer->send_event(WakeWordEventType::STOP);
         }
     }
     
-    if (detector_thread.joinable()) {
-        detector_thread.join();
-    }
+    // Cleanup
+    detector->stop();
+    g_event_channel_ptr = nullptr;
 }

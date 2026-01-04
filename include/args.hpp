@@ -18,7 +18,7 @@ struct Config {
     // Noise reduction settings (nullopt = disabled)
     std::optional<float> noise_reduction_amount = std::nullopt;
     
-    std::string fifo_path = "/tmp/wake_word_events";
+    std::string socket_path = "/tmp/wake_word_socket";
     bool show_help = false;
     bool valid = true;  // false if parsing failed
 };

@@ -17,7 +17,7 @@ void print_usage(const char* program_name) {
               << "  --no-noise-reduction   Disable noise reduction (default: NR disabled)\n"
               << "  --vad-mode MODE        Set vs mode and enable VAD (0-3, 0=quality, 3=very aggressive)\n"
               << "  --noise-reduction-amount FLOAT  Set strength and enable noise reduction (0.0-1.0)\n"
-              << "  --fifo-path PATH      Path to FIFO for Python communication (default: disabled)\n"
+              << "  --socket-path PATH    Path to Unix Domain Socket for Python communication (default: /tmp/wake_word_socket)\n"
               << "  -h, --help             Show this help message\n";
 }
 
@@ -117,11 +117,11 @@ Config parse_args(int argc, char* argv[]) {
                 config.valid = false;
                 return config;
             }
-        } else if (arg == "--fifo-path") {
+        } else if (arg == "--socket-path") {
             if (i + 1 < argc) {
-                config.fifo_path = argv[++i];
+                config.socket_path = argv[++i];
             } else {
-                std::cerr << "Error: --fifo-path requires a path\n";
+                std::cerr << "Error: --socket-path requires a path\n";
                 config.valid = false;
                 return config;
             }

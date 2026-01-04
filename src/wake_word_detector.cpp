@@ -1,6 +1,7 @@
 #include "wake_word_detector.hpp"
 #include "wake_word_event.hpp"
 #include "fifo_writer.hpp"
+#include "socket_writer.hpp"
 #include <iostream>
 #include <iostream>
 #include <thread>
@@ -19,7 +20,8 @@ WakeWordDetector::WakeWordDetector(
     const std::string& start_phrase,
     const std::string& stop_phrase,
     bool verbose,
-    Channel<WakeWordEvent>& event_channel
+    Channel<WakeWordEvent>& event_channel,
+    SocketWriter* socket_writer
 )
     : audio_capture_(audio_capture)
     , transcriber_(transcriber)
@@ -31,6 +33,7 @@ WakeWordDetector::WakeWordDetector(
     , phrase_start_detected_(false)
     , running_(false)
     , event_channel_(event_channel)
+    , socket_writer_(socket_writer)
 {
     // Dependencies are injected and initialized by the caller (Application)
 }
@@ -146,6 +149,18 @@ void WakeWordDetector::process_audio_chunks() {
             // Resample
             window = resample_chunk(window, whisper_sample_rate);
             
+            // Send audio chunk to socket if in instruction listening mode and socket writer is available
+            if (phrase_start_detected_.load() && socket_writer_ != nullptr) {
+                try {
+                    socket_writer_->send_audio_chunk(window, whisper_sample_rate);
+                } catch (const std::exception& e) {
+                    // Log but don't fail - socket errors are handled in SocketWriter
+                    if (verbose_) {
+                        std::cerr << "[DEBUG] Failed to send audio chunk: " << e.what() << std::endl;
+                    }
+                }
+            }
+            
             // Transcribe
             std::string transcription = transcriber_.transcribe_chunk(window);
             if (!transcription.empty()) {
@@ -193,13 +208,12 @@ int WakeWordDetector::start() {
     running_ = true;
     chunk_processor_thread_ = std::thread(&WakeWordDetector::process_audio_chunks, this);
 
-    std::cout << "Recording... Press Enter to stop." << std::endl;
+    std::cout << "Recording..." << std::endl;
 
-    // Wait for user input
-    std::cin.get();
+    // Non-blocking start: caller handles lifecycle
+    // std::cin.get() removal
     
-    // Stop processing
-    stop();
+    return 0;
     
     return 0;
 }
