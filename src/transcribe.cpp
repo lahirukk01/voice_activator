@@ -11,8 +11,14 @@
 #include <algorithm>
 #include <cctype>
 
+void WhisperTranscriber::WhisperFree::operator()(whisper_context* ctx) {
+    if (ctx) {
+        whisper_free(ctx);
+    }
+}
+
 WhisperTranscriber::WhisperTranscriber() 
-    : ctx_(nullptr), is_ready_(false), init_failed_(false) {
+    : is_ready_(false), init_failed_(false) {
 }
 
 WhisperTranscriber::~WhisperTranscriber() {
@@ -58,7 +64,7 @@ void WhisperTranscriber::init_whisper_internal(const std::string& model_path, bo
     }
     
     whisper_context_params cparams = whisper_context_default_params();
-    whisper_context* new_ctx = whisper_init_from_file_with_params(model_path.c_str(), cparams);
+    whisper_context* new_ctx_raw = whisper_init_from_file_with_params(model_path.c_str(), cparams);
     
     // Restore stderr and process captured output
     if (!verbose && stderr_fd >= 0) {
@@ -109,13 +115,13 @@ void WhisperTranscriber::init_whisper_internal(const std::string& model_path, bo
     
     std::lock_guard<std::mutex> lock(ctx_mutex_);
     
-    if (new_ctx == nullptr) {
+    if (new_ctx_raw == nullptr) {
         std::cerr << "Error: Failed to initialize whisper context from model: " << model_path << std::endl;
         init_failed_ = true;
         return;
     }
     
-    ctx_ = new_ctx;
+    ctx_.reset(new_ctx_raw);
     is_ready_ = true;
     std::cout << "Whisper model loaded successfully!" << std::endl;
 }
@@ -143,7 +149,7 @@ std::string WhisperTranscriber::transcribe_chunk(const std::vector<float>& audio
         wait_for_ready();
     }
     
-    if (init_failed_.load() || ctx_ == nullptr) {
+    if (init_failed_.load() || !ctx_) {
         return "";
     }
     
@@ -167,17 +173,17 @@ std::string WhisperTranscriber::transcribe_chunk(const std::vector<float>& audio
     wparams.single_segment   = false;
     
     // Run transcription
-    if (whisper_full(ctx_, wparams, audio_data.data(), audio_data.size()) != 0) {
+    if (whisper_full(ctx_.get(), wparams, audio_data.data(), audio_data.size()) != 0) {
         std::cerr << "Error: Failed to process audio chunk" << std::endl;
         return "";
     }
     
     // Extract transcription text
     std::string result;
-    const int n_segments = whisper_full_n_segments(ctx_);
+    const int n_segments = whisper_full_n_segments(ctx_.get());
     
     for (int i = 0; i < n_segments; ++i) {
-        const char* text = whisper_full_get_segment_text(ctx_, i);
+        const char* text = whisper_full_get_segment_text(ctx_.get(), i);
         result += text;
     }
     
@@ -209,10 +215,8 @@ void WhisperTranscriber::cleanup() {
     }
     
     std::lock_guard<std::mutex> lock(ctx_mutex_);
-    if (ctx_ != nullptr) {
-        whisper_free(ctx_);
-        ctx_ = nullptr;
-    }
+    // unique_ptr automatically resets and freeing is handled by deleter
+    ctx_.reset();
     is_ready_ = false;
 }
 

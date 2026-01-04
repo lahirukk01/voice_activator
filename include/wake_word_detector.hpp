@@ -1,6 +1,7 @@
 #pragma once
 
-#include "args.hpp"
+#include "iaudio_capture.hpp"
+#include "itranscriber.hpp"
 #include "channel.hpp"
 #include "wake_word_event.hpp"
 #include <SDL.h>
@@ -8,22 +9,25 @@
 #include <atomic>
 #include <thread>
 #include <memory>
-
-// Forward declarations
-class WhisperTranscriber;
-class AudioFilter;
+#include <optional>
 
 // Wake word detector class
-// Manages the lifecycle of wake word detection: initialization, processing, and cleanup
+// Manages the lifecycle of wake word detection: processing and event dispatching
+// Dependencies (AudioCapture, Transcriber) are injected and must outlive this object.
 class WakeWordDetector {
 public:
-    WakeWordDetector();
-    ~WakeWordDetector();
+    // Constructor receives injected dependencies
+    WakeWordDetector(
+        IAudioCapture& audio_capture,
+        ITranscriber& transcriber,
+        double chunk_size_seconds,
+        const std::string& start_phrase,
+        const std::string& stop_phrase,
+        bool verbose,
+        Channel<WakeWordEvent>& event_channel
+    );
     
-    // Initialize components (whisper, audio filter, audio capture)
-    // event_channel: Channel for sending START/STOP events
-    // Returns true on success, false on error
-    bool initialize(const Config& config, Channel<WakeWordEvent>& event_channel);
+    ~WakeWordDetector();
     
     // Start wake word detection
     // Returns 0 on success, non-zero on error
@@ -36,10 +40,6 @@ public:
     void cleanup();
 
 private:
-    // Setup and open audio device, print info
-    // Returns true on success, false on failure
-    bool setup_audio_device();
-    
     // Process audio chunks in a loop (runs in separate thread)
     void process_audio_chunks();
     
@@ -51,19 +51,23 @@ private:
     void handle_transcription(const std::string& transcription);
 
 private:
-    Config config_;
-    std::unique_ptr<WhisperTranscriber> transcriber_;
-    std::unique_ptr<AudioFilter> audio_filter_;
-    SDL_AudioDeviceID dev_;
+    // Dependencies
+    IAudioCapture& audio_capture_;
+    ITranscriber& transcriber_;
+    
+    // Configuration
+    double chunk_size_seconds_;
+    std::string start_phrase_;
+    std::string stop_phrase_;
+    bool verbose_;
+
     std::atomic<bool> stop_requested_;
     std::atomic<bool> phrase_start_detected_;
     std::thread chunk_processor_thread_;
-    bool initialized_;
     bool running_;
-    Channel<WakeWordEvent>* event_channel_;  // Reference to channel for sending events
+    Channel<WakeWordEvent>& event_channel_; // Reference to channel for sending events
 };
 
-// Convenience function for backward compatibility
-// Returns 0 on success, non-zero on error
-int start_wake_word_detection(const Config& config);
+
+
 

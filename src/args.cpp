@@ -8,16 +8,16 @@ void print_usage(const char* program_name) {
               << "Options:\n"
               << "  -o, --output DIR       Output directory (default: output)\n"
               << "  -f, --filename NAME    Custom filename (default: auto-generated with timestamp)\n"
-              << "  -m, --model PATH       Path to whisper model file (default: /Users/lahirukk/SoftwareProjects/Python/whisper.cpp/models/ggml-base.en.bin)\n"
+              << "  -m, --model PATH       Path to whisper model file\n"
               << "  --chunk-size SECONDS   Chunk size for transcription in seconds (default: 3.0)\n"
               << "  --start-phrase REGEX     Start phrase regex pattern (default: \"hey[!?.]?\\s+alfred\")\n"
               << "  --stop-phrase REGEX     Stop phrase regex pattern (default: \"stop[!?.]?\\s+alfred\")\n"
               << "  --verbose              Enable real-time chunk printing\n"
-              << "  --no-vad               Disable VAD filtering\n"
-              << "  --no-noise-reduction   Disable noise reduction\n"
-              << "  --vad-mode MODE        Set VAD mode (0-3, default: 2)\n"
-              << "                         0=quality, 1=low bitrate, 2=aggressive, 3=very aggressive\n"
-              << "  --noise-reduction-amount FLOAT  Set noise reduction strength (0.0-1.0, default: 0.5)\n"
+              << "  --no-vad               Disable VAD filtering (default: VAD disabled)\n"
+              << "  --no-noise-reduction   Disable noise reduction (default: NR disabled)\n"
+              << "  --vad-mode MODE        Set vs mode and enable VAD (0-3, 0=quality, 3=very aggressive)\n"
+              << "  --noise-reduction-amount FLOAT  Set strength and enable noise reduction (0.0-1.0)\n"
+              << "  --fifo-path PATH      Path to FIFO for Python communication (default: disabled)\n"
               << "  -h, --help             Show this help message\n";
 }
 
@@ -86,9 +86,9 @@ Config parse_args(int argc, char* argv[]) {
         } else if (arg == "--verbose") {
             config.verbose = true;
         } else if (arg == "--no-vad") {
-            config.enable_vad = false;
+            config.vad_mode = std::nullopt;
         } else if (arg == "--no-noise-reduction") {
-            config.enable_noise_reduction = false;
+            config.noise_reduction_amount = std::nullopt;
         } else if (arg == "--vad-mode") {
             if (i + 1 < argc) {
                 int mode = std::stoi(argv[++i]);
@@ -114,6 +114,14 @@ Config parse_args(int argc, char* argv[]) {
                 config.noise_reduction_amount = amount;
             } else {
                 std::cerr << "Error: --noise-reduction-amount requires a number (0.0-1.0)\n";
+                config.valid = false;
+                return config;
+            }
+        } else if (arg == "--fifo-path") {
+            if (i + 1 < argc) {
+                config.fifo_path = argv[++i];
+            } else {
+                std::cerr << "Error: --fifo-path requires a path\n";
                 config.valid = false;
                 return config;
             }
