@@ -39,15 +39,9 @@ endif()
 set(CMAKE_PREFIX_PATH "/opt/homebrew")
 find_package(SDL2 REQUIRED)
 
-# Add whisper.cpp as a subdirectory
-# Use absolute path to whisper.cpp
-set(WHISPER_CPP_DIR "/Users/lahirukk/SoftwareProjects/Python/whisper.cpp")
-if(NOT EXISTS "${WHISPER_CPP_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR "whisper.cpp not found at ${WHISPER_CPP_DIR}. Please update WHISPER_CPP_DIR in CMakeLists.txt")
-endif()
+include(FetchContent)
 
-# Set whisper.cpp build options before adding subdirectory
-# These can be overridden via command line: cmake .. -DGGML_OPENMP=OFF etc.
+# Set whisper.cpp build options
 set(GGML_OPENMP ON CACHE BOOL "Enable OpenMP support")
 set(GGML_METAL ON CACHE BOOL "Enable Metal support (Apple Silicon)")
 set(WHISPER_COREML ON CACHE BOOL "Enable CoreML support (Apple Neural Engine)")
@@ -68,13 +62,13 @@ if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|ARM64")
     message(STATUS "Apple Silicon: Using explicit ARM architecture: ${GGML_CPU_ARM_ARCH}")
 endif()
 
-message(STATUS "Using whisper.cpp from: ${WHISPER_CPP_DIR}")
-message(STATUS "Whisper.cpp options:")
-message(STATUS "  GGML_OPENMP: ${GGML_OPENMP}")
-message(STATUS "  GGML_METAL: ${GGML_METAL}")
-message(STATUS "  WHISPER_COREML: ${WHISPER_COREML}")
-
-add_subdirectory(${WHISPER_CPP_DIR} whisper_build)
+message(STATUS "Downloading and building whisper.cpp v1.8.2...")
+FetchContent_Declare(
+    whisper_cpp
+    GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
+    GIT_TAG        v1.8.2
+)
+FetchContent_MakeAvailable(whisper_cpp)
 
 # Find audio processing libraries (libfvad and libspecbleach)
 # These libraries are not available via Homebrew, so they need to be built from source.
