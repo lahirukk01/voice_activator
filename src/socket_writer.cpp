@@ -124,6 +124,10 @@ void SocketWriter::ensure_connected() {
     client_fd_ = accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
     
     if (client_fd_ >= 0) {
+        // Ensure client socket is in blocking mode (default, but be explicit)
+        int flags = fcntl(client_fd_, F_GETFL, 0);
+        fcntl(client_fd_, F_SETFL, flags & ~O_NONBLOCK);  // Clear non-blocking flag
+        
         std::cout << "Client connected to socket" << std::endl;
     } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
         // Real error (not just "no connection yet")
@@ -132,7 +136,7 @@ void SocketWriter::ensure_connected() {
     // If EAGAIN/EWOULDBLOCK, no client connected yet - that's OK, we'll retry
 }
 
-// Write all data (handles partial writes)
+// Write all data (handles partial writes and EAGAIN)
 void SocketWriter::write_all(const void* data, size_t len) {
     const char* buf = static_cast<const char*>(data);
     size_t total_written = 0;
@@ -145,6 +149,11 @@ void SocketWriter::write_all(const void* data, size_t len) {
                 ::close(client_fd_);
                 client_fd_ = -1;
                 throw std::runtime_error("Client disconnected");
+            } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // Socket buffer full - wait a bit and retry
+                // This shouldn't happen with blocking sockets, but handle it anyway
+                usleep(1000);  // Wait 1ms and retry
+                continue;
             } else {
                 throw std::runtime_error(
                     "Failed to write to socket: " + std::string(strerror(errno))
